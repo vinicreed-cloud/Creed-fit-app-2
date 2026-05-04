@@ -168,4 +168,3 @@ with tab_banco:
         st.session_state.db_alimentos.append({"nome": n, "cal_por_100g": c})
         st.rerun()
     st.dataframe(pd.DataFrame(st.session_state.db_alimentos), use_container_width=True)
-        
