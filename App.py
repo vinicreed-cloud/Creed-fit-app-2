@@ -3,14 +3,13 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 # --- CONFIGURAÇÕES DO PERFIL ---
-st.set_page_config(page_title="BioStats Pro", layout="wide", page_icon="⚖️")
+st.set_page_config(page_title="BioStats Pro v3", layout="wide", page_icon="⚖️")
 
-# --- INICIALIZAÇÃO DE DADOS (Correção de Erros de Estado) ---
+# --- INICIALIZAÇÃO DE ESTADO ---
 if 'banco_alimentos' not in st.session_state:
-    st.session_state.banco_alimentos = {"Arroz (100g)": 130.0, "Feijão (100g)": 90.0, "Frango (100g)": 165.0, "Ovo (un)": 78.0}
+    st.session_state.banco_alimentos = {"Arroz Branco": 1.30, "Feijão": 0.91, "Frango Grelhado": 1.65, "Ovo": 78.0}
 
 if 'log_atividades' not in st.session_state:
-    # Criando o DataFrame com tipos de dados definidos para evitar erros de concatenação
     st.session_state.log_atividades = pd.DataFrame({
         'Data': pd.to_datetime([]),
         'Tipo': pd.Series([], dtype='str'),
@@ -22,10 +21,7 @@ if 'log_atividades' not in st.session_state:
 if 'peso_usuario' not in st.session_state:
     st.session_state.peso_usuario = 107.5
 
-if 'meta_agua' not in st.session_state:
-    st.session_state.meta_agua = 3.7
-
-# --- FUNÇÕES AUXILIARES ---
+# --- FUNÇÃO PARA ADICIONAR AO HISTÓRICO ---
 def adicionar_registro(tipo, categoria, desc, valor):
     novo_registro = pd.DataFrame([{
         'Data': datetime.now(),
@@ -38,135 +34,145 @@ def adicionar_registro(tipo, categoria, desc, valor):
 
 # --- BARRA LATERAL ---
 with st.sidebar:
-    st.header("⚙️ Configurações")
-    st.session_state.peso_usuario = st.number_input("Peso Atual (kg)", value=float(st.session_state.peso_usuario), step=0.1)
-    st.session_state.meta_agua = st.number_input("Meta de Água (L)", value=float(st.session_state.meta_agua), step=0.1)
+    st.header("👤 Perfil & Metas")
+    st.session_state.peso_usuario = st.number_input("Peso (kg)", value=float(st.session_state.peso_usuario), step=0.1)
     
     st.divider()
-    st.subheader("📊 Resumo de Hoje")
-    
-    df = st.session_state.log_atividades
-    if not df.empty:
-        # Filtro corrigido para comparação de datas
-        hoje = datetime.now().date()
-        df_hoje = df[df['Data'].dt.date == hoje]
-        
+    hoje = datetime.now().date()
+    df_h = st.session_state.log_atividades
+    if not df_h.empty:
+        df_hoje = df_h[df_h['Data'].dt.date == hoje]
         cal_in = df_hoje[df_hoje['Tipo'] == 'Alimento']['Valor'].sum()
         cal_out = df_hoje[df_hoje['Tipo'] == 'Exercício']['Valor'].sum()
-        agua_total = df_hoje[df_hoje['Tipo'] == 'Água']['Valor'].sum()
-        
-        st.metric("Consumo", f"{int(cal_in)} kcal")
-        st.metric("Queima", f"{int(cal_out)} kcal")
-        st.metric("Água", f"{agua_total:.1f} L")
-    else:
-        st.write("Sem registros hoje.")
+        st.metric("Consumo Hoje", f"{int(cal_in)} kcal")
+        st.metric("Queima Hoje", f"{int(cal_out)} kcal")
+        st.metric("Saldo Líquido", f"{int(cal_in - cal_out)} kcal")
 
 # --- INTERFACE PRINCIPAL ---
-st.title("🍎 BioStats: Gestão de Saúde")
+st.title("🍎 BioStats: Diário Inteligente")
 
-abas = st.tabs(["🍽️ Refeições", "🏃 Exercícios", "📈 Relatórios", "📋 Histórico", "⚙️ Banco"])
+abas = st.tabs(["🍽️ Lançar Alimentos", "🏃 Lançar Exercícios", "📈 Relatórios", "📋 Histórico Detalhado", "⚙️ Banco"])
 
-# --- ABA 1: ALIMENTAÇÃO ---
+# --- ABA 1: ALIMENTAÇÃO (COM CÁLCULO EM TEMPO REAL) ---
 with abas[0]:
-    col1, col2 = st.columns(2)
+    st.subheader("Nova Refeição")
+    col1, col2 = st.columns([2, 1])
+    
     with col1:
-        st.subheader("Lançar Alimento")
-        momento = st.selectbox("Momento", ["Café da Manhã", "Almoço", "Café da Tarde", "Janta", "Snacks"])
-        busca = st.text_input("Filtrar alimento:")
-        
+        refeicao = st.selectbox("Escolha a Refeição:", ["Café da Manhã", "Almoço", "Café da Tarde", "Janta", "Snacks"])
+        busca = st.text_input("🔍 Buscar alimento no banco:")
         opcoes = [a for a in st.session_state.banco_alimentos.keys() if busca.lower() in a.lower()]
+        
         if opcoes:
-            alimento_sel = st.selectbox("Selecione:", opcoes)
-            qtd = st.number_input("Quantidade (Fator, ex: 1.0 = 100g/1un)", value=1.0, step=0.1)
+            alimento_sel = st.selectbox("Alimento selecionado:", opcoes)
             
-            if st.button("Adicionar Alimento"):
-                total_cal = st.session_state.banco_alimentos[alimento_sel] * qtd
-                adicionar_registro('Alimento', momento, alimento_sel, total_cal)
-                st.success("Adicionado!")
+            # Lógica de unidade vs gramas
+            is_unidade = "ovo" in alimento_sel.lower() or "un" in alimento_sel.lower()
+            label_qtd = "Quantidade (unidades):" if is_unidade else "Quantidade (gramas - g):"
+            
+            qtd = st.number_input(label_qtd, min_value=0.0, value=100.0 if not is_unidade else 1.0, step=1.0)
+            
+            # CÁLCULO EM TEMPO REAL
+            valor_unitario = st.session_state.banco_alimentos[alimento_sel]
+            total_preview = qtd * valor_unitario
+            
+            st.markdown(f"### ⚡ Resultado: **{int(total_preview)} kcal**")
+            
+            if st.button("✅ Confirmar Lançamento"):
+                adicionar_registro('Alimento', refeicao, alimento_sel, total_preview)
+                st.success(f"{alimento_sel} lançado no {refeicao}!")
+                st.rerun()
         else:
             st.warning("Alimento não encontrado. Cadastre na aba 'Banco'.")
 
-    with col2:
-        st.subheader("💧 Hidratação")
-        vol = st.number_input("Litros (L)", value=0.25, step=0.05)
-        if st.button("Registrar Água"):
-            adicionar_registro('Água', 'Hidratação', 'Água', vol)
-            st.rerun()
-
 # --- ABA 2: EXERCÍCIOS ---
 with abas[1]:
-    col_ex1, col_ex2 = st.columns(2)
-    with col_ex1:
-        st.subheader("Atividades")
-        tipo_ex = st.selectbox("Tipo", ["Musculação", "Caminhada", "Corrida", "Natação"])
-        minutos = st.number_input("Minutos", value=30, step=5)
-        mets = {"Musculação": 5.0, "Caminhada": 4.0, "Corrida": 8.0, "Natação": 7.0}
-        
-        if st.button("Lançar Treino"):
-            gasto = (mets[tipo_ex] * st.session_state.peso_usuario * (minutos/60))
-            adicionar_registro('Exercício', 'Treino', tipo_ex, gasto)
+    st.subheader("Atividade Física")
+    tipo_ex = st.selectbox("O que você treinou?", ["Musculação", "Caminhada", "Corrida", "Natação", "Outro (Gasto Manual)"])
+    
+    if tipo_ex == "Outro (Gasto Manual)":
+        desc_manual = st.text_input("Descrição do gasto:")
+        cal_manual = st.number_input("Calorias estimadas:", min_value=0)
+        if st.button("Lançar Gasto Manual"):
+            adicionar_registro('Exercício', 'Extra', desc_manual, cal_manual)
             st.rerun()
-
-    with col_ex2:
-        st.subheader("Gasto Extra")
-        desc_extra = st.text_input("Descrição (Ex: Faxina)")
-        cal_extra = st.number_input("Kcal estimadas", value=100)
-        if st.button("Lançar Extra"):
-            adicionar_registro('Exercício', 'Extra', desc_extra, cal_extra)
+    else:
+        minutos = st.number_input("Duração (minutos):", min_value=1, value=45)
+        mets = {"Musculação": 5.0, "Caminhada": 4.0, "Corrida": 8.0, "Natação": 7.0}
+        gasto_ex = (mets[tipo_ex] * st.session_state.peso_usuario * (minutos/60))
+        
+        st.markdown(f"### 🔥 Queima estimada: **{int(gasto_ex)} kcal**")
+        if st.button("✅ Lançar Exercício"):
+            adicionar_registro('Exercício', 'Treino', tipo_ex, gasto_ex)
             st.rerun()
 
 # --- ABA 3: RELATÓRIOS ---
 with abas[2]:
+    st.subheader("Estatísticas")
+    # Filtros de Hoje, Semana e Mês
     periodo = st.radio("Período:", ["Hoje", "7 Dias", "30 Dias"], horizontal=True)
     dias = 0 if periodo == "Hoje" else (7 if periodo == "7 Dias" else 30)
-    
     data_limite = datetime.now() - timedelta(days=dias)
-    df_f = st.session_state.log_atividades
     
-    if not df_f.empty:
-        mask = df_f['Data'] >= pd.to_datetime(data_limite).normalize()
-        df_periodo = df_f.loc[mask]
+    df_filt = st.session_state.log_atividades
+    if not df_filt.empty:
+        mask = df_filt['Data'] >= pd.to_datetime(data_limite).normalize()
+        df_p = df_filt.loc[mask]
         
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Ingerido", f"{int(df_periodo[df_periodo['Tipo'] == 'Alimento']['Valor'].sum())} kcal")
-        c2.metric("Queimado", f"{int(df_periodo[df_periodo['Tipo'] == 'Exercício']['Valor'].sum())} kcal")
-        c3.metric("Água", f"{df_periodo[df_periodo['Tipo'] == 'Água']['Valor'].sum():.1f} L")
-        
-        if not df_periodo.empty:
-            chart_data = df_periodo.groupby('Tipo')['Valor'].sum()
-            st.bar_chart(chart_data)
-    else:
-        st.info("Sem dados para exibir.")
+        c1, c2 = st.columns(2)
+        c1.metric("Total Ingerido", f"{int(df_p[df_p['Tipo'] == 'Alimento']['Valor'].sum())} kcal")
+        c2.metric("Total Queimado", f"{int(df_p[df_p['Tipo'] == 'Exercício']['Valor'].sum())} kcal")
+        st.bar_chart(df_p.groupby('Tipo')['Valor'].sum())
 
-# --- ABA 4: HISTÓRICO / EDITAR ---
+# --- ABA 4: HISTÓRICO (DIVIDIDO POR CATEGORIAS) ---
 with abas[3]:
-    st.subheader("Lançamentos de Hoje")
+    st.subheader("📅 Histórico de Hoje")
     df_h = st.session_state.log_atividades
+    hoje_dt = datetime.now().date()
+    
     if not df_h.empty:
-        hoje_dt = datetime.now().date()
-        indices_hoje = df_h[df_h['Data'].dt.date == hoje_dt].index
+        df_hoje = df_h[df_h['Data'].dt.date == hoje_dt]
         
-        for i in indices_hoje:
-            row = df_h.loc[i]
-            c1, c2, c3 = st.columns([3, 1, 1])
-            c1.write(f"**{row['Tipo']}**: {row['Descricao']} ({row['Categoria']}) - {row['Valor']:.1f}")
-            if c3.button("Excluir", key=f"del_{i}"):
-                st.session_state.log_atividades = st.session_state.log_atividades.drop(i)
-                st.rerun()
+        # --- SEÇÃO COMIDA ---
+        st.markdown("### 🥗 Comida")
+        for ref in ["Café da Manhã", "Almoço", "Café da Tarde", "Janta", "Snacks"]:
+            df_ref = df_hoje[df_hoje['Categoria'] == ref]
+            if not df_ref.empty:
+                with st.expander(f"{ref} - Subtotal: {int(df_ref['Valor'].sum())} kcal", expanded=True):
+                    for i, row in df_ref.iterrows():
+                        c1, c2 = st.columns([4, 1])
+                        c1.write(f"• {row['Descricao']}: {int(row['Valor'])} kcal")
+                        if c2.button("🗑️", key=f"del_{i}"):
+                            st.session_state.log_atividades = st.session_state.log_atividades.drop(i)
+                            st.rerun()
+        
+        st.divider()
+        
+        # --- SEÇÃO EXERCÍCIO ---
+        st.markdown("### 🏃 Exercício")
+        df_exs = df_hoje[df_hoje['Tipo'] == 'Exercício']
+        if not df_exs.empty:
+            for i, row in df_exs.iterrows():
+                c1, c2 = st.columns([4, 1])
+                c1.write(f"• {row['Descricao']} ({row['Categoria']}): {int(row['Valor'])} kcal")
+                if c2.button("🗑️", key=f"del_ex_{i}"):
+                    st.session_state.log_atividades = st.session_state.log_atividades.drop(i)
+                    st.rerun()
+        else:
+            st.info("Nenhum exercício lançado hoje.")
     else:
-        st.write("Nada registrado hoje.")
+        st.info("O histórico está vazio.")
 
 # --- ABA 5: BANCO DE DADOS ---
 with abas[4]:
-    st.subheader("Cadastrar Alimento")
-    n_nome = st.text_input("Nome (ex: Pão de Forma)")
-    n_cal = st.number_input("Calorias por porção (ex: a cada 100g)", value=100.0)
-    if st.button("Salvar Alimento"):
+    st.subheader("Gerenciar Alimentos")
+    n_nome = st.text_input("Nome do Alimento:")
+    n_cal = st.number_input("Calorias (por 1g ou 1 unidade):", format="%.2f")
+    st.caption("Ex: Se 100g de arroz tem 130kcal, coloque 1.30")
+    
+    if st.button("💾 Salvar no Banco"):
         if n_nome:
             st.session_state.banco_alimentos[n_nome] = n_cal
-            st.success("Salvo!")
+            st.success(f"{n_nome} cadastrado!")
             st.rerun()
-    
-    st.divider()
-    st.write("Itens no Banco:", st.session_state.banco_alimentos)
-    
+        
