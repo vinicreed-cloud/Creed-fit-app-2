@@ -178,7 +178,6 @@ with tab_peso:
     if st.button("Registrar peso de hoje", key="btn_reg_peso"):
         registrar_peso_diario(peso_hoje)
         st.success("Peso registrado com sucesso!")
-        st.stop()
 
     st.subheader("Histórico de Peso")
     df_peso = st.session_state.historico_peso.sort_values("data")
@@ -248,7 +247,6 @@ with tab_alim:
 
     if remove_index is not None:
         st.session_state.carrinho.pop(remove_index)
-        st.stop()
 
     st.write(f"**Total do prato:** {total:.0f} kcal")
 
@@ -264,7 +262,6 @@ with tab_alim:
         else:
             registrar_refeicao(categoria)
             st.success("Refeição registrada!")
-            st.stop()
 
 
 # ---------------------------------------------------------
@@ -290,7 +287,6 @@ with tab_ex:
     if st.button("Registrar exercício", key="btn_reg_ex"):
         registrar_exercicio(atividade, kcal_est)
         st.success("Exercício registrado!")
-        st.stop()
 
     st.subheader("Gasto manual")
     desc = st.text_input("Descrição da atividade", key="desc_ex_manual")
@@ -308,7 +304,6 @@ with tab_ex:
         else:
             registrar_exercicio(desc, kcal_m)
             st.success("Gasto registrado!")
-            st.stop()
 
 
 # ---------------------------------------------------------
@@ -349,7 +344,6 @@ with tab_banco:
         else:
             adicionar_alimento(nome, kcal, base)
             st.success("Alimento adicionado!")
-            st.stop()
 
     st.subheader("Alimentos cadastrados")
     st.dataframe(st.session_state.banco_alimentos.sort_values("nome"), use_container_width=True)
