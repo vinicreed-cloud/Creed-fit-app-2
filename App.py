@@ -66,11 +66,9 @@ def metas(peso, tmb, get):
 def registrar_peso_diario(peso):
     hoje = pd.to_datetime(dt.date.today())
     df = st.session_state.historico_peso
-
-    df = df[df["data"] != hoje]  # remove duplicado
+    df = df[df["data"] != hoje]
     novo = pd.DataFrame([{"data": hoje, "peso": peso}])
     st.session_state.historico_peso = pd.concat([df, novo], ignore_index=True)
-
     st.session_state.peso_atual = peso
 
 
@@ -359,11 +357,11 @@ with tab_rel:
     df_ex = st.session_state.historico_exercicios.copy()
 
     if not df_ref.empty:
-        df_ref["data"] = pd.to_datetime(df_ref["data"])
+        df_ref["data"] = pd.to_datetime(df_ref["data"], errors="coerce")
     if not df_ex.empty:
-        df_ex["data"] = pd.to_datetime(df_ex["data"])
+        df_ex["data"] = pd.to_datetime(df_ex["data"], errors="coerce")
 
-    dias = sorted(df_ref["data"].unique()) if not df_ref.empty else []
+    dias = sorted(df_ref["data"].dropna().unique()) if not df_ref.empty else []
 
     if dias:
         dia_sel = st.selectbox("Selecionar dia", dias, key="dia_rel")
@@ -387,14 +385,18 @@ with tab_rel:
     st.subheader("Resumo semanal")
 
     if not df_ref.empty:
+        df_ref["data"] = pd.to_datetime(df_ref["data"], errors="coerce")
+        df_ex["data"] = pd.to_datetime(df_ex["data"], errors="coerce")
+
         df_ref["semana"] = df_ref["data"].dt.isocalendar().week
         df_ex["semana"] = df_ex["data"].dt.isocalendar().week
 
-        semanas = sorted(df_ref["semana"].unique())
-        semana_sel = st.selectbox("Semana", semanas, key="semana_rel")
+        semanas = sorted(df_ref["semana"].dropna().unique())
+        if len(semanas) > 0:
+            semana_sel = st.selectbox("Semana", semanas, key="semana_rel")
 
-        ing_sem = df_ref[df_ref["semana"] == semana_sel]["kcal"].sum()
-        que_sem = df_ex[df_ex["semana"] == semana_sel]["kcal"].sum()
+            ing_sem = df_ref[df_ref["semana"] == semana_sel]["kcal"].sum()
+            que_sem = df_ex[df_ex["semana"] == semana_sel]["kcal"].sum()
 
-        st.write(f"**Ingerido na semana:** {ing_sem:.0f} kcal")
-        st.write(f"**Queimado na semana:** {que_sem:.0f} kcal")
+            st.write(f"**Ingerido na semana:** {ing_sem:.0f} kcal")
+            st.write(f"**Queimado na semana:** {que_sem:.0f} kcal")
