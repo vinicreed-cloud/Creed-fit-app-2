@@ -371,10 +371,14 @@ with tab_rel:
         ingerido = df_dia_ref["kcal"].sum()
         queimado = df_dia_ex["kcal"].sum()
 
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Ingerido", f"{ingerido:.0f} kcal")
-        col2.metric("Queimado", f"{queimado:.0f} kcal")
-        col3.metric("Saldo", f"{ingerido - queimado:.0f} kcal")
+        saldo = ingerido - queimado
+        dif_meta = meta_cal - ingerido
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Meta do dia", f"{meta_cal:.0f} kcal")
+        col2.metric("Ingerido", f"{ingerido:.0f} kcal")
+        col3.metric("Queimado", f"{queimado:.0f} kcal")
+        col4.metric("Diferença p/ meta", f"{dif_meta:.0f} kcal")
 
         st.subheader("Comparativo Ingerido x Queimado")
         df_bar = pd.DataFrame(
