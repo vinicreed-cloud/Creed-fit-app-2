@@ -66,17 +66,11 @@ def metas(peso, tmb, get):
 def registrar_peso_diario(peso):
     hoje = pd.to_datetime(dt.date.today())
     df = st.session_state.historico_peso
-    if hoje not in df["data"].values:
-        novo = pd.DataFrame([{"data": hoje, "peso": peso}])
-        st.session_state.historico_peso = pd.concat([df, novo], ignore_index=True)
 
-
-def registrar_peso_manual(peso):
-    hoje = pd.to_datetime(dt.date.today())
-    df = st.session_state.historico_peso
-    df = df[df["data"] != hoje]
+    df = df[df["data"] != hoje]  # remove duplicado
     novo = pd.DataFrame([{"data": hoje, "peso": peso}])
     st.session_state.historico_peso = pd.concat([df, novo], ignore_index=True)
+
     st.session_state.peso_atual = peso
 
 
@@ -85,6 +79,7 @@ def registrar_refeicao(categoria):
         return
     hoje = pd.to_datetime(dt.date.today())
     hora = dt.datetime.now().strftime("%H:%M")
+
     novos = []
     for item in st.session_state.carrinho:
         novos.append(
@@ -97,6 +92,7 @@ def registrar_refeicao(categoria):
                 "kcal": item["kcal"],
             }
         )
+
     df = pd.DataFrame(novos)
     st.session_state.historico_refeicoes = pd.concat(
         [st.session_state.historico_refeicoes, df], ignore_index=True
@@ -126,27 +122,13 @@ def adicionar_alimento(nome, kcal, base):
 # INICIALIZAÇÃO
 # ---------------------------------------------------------
 init_state()
-registrar_peso_diario(st.session_state.peso_atual)
 peso_atual = st.session_state.peso_atual
 
 
 # ---------------------------------------------------------
 # SIDEBAR
 # ---------------------------------------------------------
-st.sidebar.title("Perfil & Metas")
-
-novo_peso = st.sidebar.number_input(
-    "Registrar peso de hoje (kg)",
-    min_value=40.0,
-    max_value=250.0,
-    value=float(peso_atual),
-    step=0.1,
-    key="peso_diario",
-)
-
-if st.sidebar.button("Salvar peso", key="btn_salvar_peso"):
-    registrar_peso_manual(novo_peso)
-    st.sidebar.success("Peso registrado!")
+st.sidebar.title("Metas do Dia")
 
 fator = st.sidebar.selectbox(
     "Nível de atividade",
@@ -173,9 +155,35 @@ st.sidebar.metric("Meta Água", f"{meta_agua/1000:.2f} L")
 # ---------------------------------------------------------
 # TABS
 # ---------------------------------------------------------
-tab_evo, tab_alim, tab_ex, tab_hist, tab_banco, tab_rel = st.tabs(
-    ["Evolução", "Alimentação", "Exercícios", "Histórico", "Banco", "Relatórios"]
+tab_peso, tab_evo, tab_alim, tab_ex, tab_hist, tab_banco, tab_rel = st.tabs(
+    ["Peso Diário", "Evolução", "Alimentação", "Exercícios", "Histórico", "Banco", "Relatórios"]
 )
+
+
+# ---------------------------------------------------------
+# PESO DIÁRIO
+# ---------------------------------------------------------
+with tab_peso:
+    st.header("Registro Diário de Peso")
+
+    peso_hoje = st.number_input(
+        "Seu peso de hoje (kg)",
+        min_value=40.0,
+        max_value=250.0,
+        value=float(peso_atual),
+        step=0.1,
+        key="peso_do_dia",
+    )
+
+    if st.button("Registrar peso de hoje", key="btn_reg_peso"):
+        registrar_peso_diario(peso_hoje)
+        st.success("Peso registrado com sucesso!")
+        st.experimental_rerun()
+
+    st.subheader("Histórico de Peso")
+    df_peso = st.session_state.historico_peso.sort_values("data")
+    st.line_chart(df_peso.set_index("data")["peso"])
+    st.dataframe(df_peso, use_container_width=True)
 
 
 # ---------------------------------------------------------
@@ -201,7 +209,7 @@ with tab_alim:
         df_banco = df_banco[df_banco["nome"].str.contains(busca, case=False)]
 
     if df_banco.empty:
-        st.warning("Nenhum alimento encontrado. Cadastre novos na aba Banco.")
+        st.warning("Nenhum alimento encontrado.")
     else:
         alimento = st.selectbox("Alimento", df_banco["nome"].tolist(), key="sel_alimento")
 
