@@ -149,5 +149,24 @@ with abas[3]:
         for i in indices_hoje:
             row = df_h.loc[i]
             c1, c2, c3 = st.columns([3, 1, 1])
-            c1.write(f"**
-            
+            c1.write(f"**{row['Tipo']}**: {row['Descricao']} ({row['Categoria']}) - {row['Valor']:.1f}")
+            if c3.button("Excluir", key=f"del_{i}"):
+                st.session_state.log_atividades = st.session_state.log_atividades.drop(i)
+                st.rerun()
+    else:
+        st.write("Nada registrado hoje.")
+
+# --- ABA 5: BANCO DE DADOS ---
+with abas[4]:
+    st.subheader("Cadastrar Alimento")
+    n_nome = st.text_input("Nome (ex: Pão de Forma)")
+    n_cal = st.number_input("Calorias por porção (ex: a cada 100g)", value=100.0)
+    if st.button("Salvar Alimento"):
+        if n_nome:
+            st.session_state.banco_alimentos[n_nome] = n_cal
+            st.success("Salvo!")
+            st.rerun()
+    
+    st.divider()
+    st.write("Itens no Banco:", st.session_state.banco_alimentos)
+    
