@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="BioStats Pro", layout="centered")
+st.set_page_config(page_title="BioStats Pro v2", layout="centered")
 
 # --- ESTILO CSS PARA MOBILE ---
 st.markdown("""
@@ -18,12 +18,12 @@ if 'db_alimentos' not in st.session_state:
     st.session_state.db_alimentos = [
         {"nome": "Arroz Branco", "cal_por_100g": 130},
         {"nome": "Feijão Preto", "cal_por_100g": 91},
-        {"nome": "Frango Grelhado", "cal_por_100g": 165},
-        {"nome": "Ovo Cozido", "cal_por_100g": 155}
+        {"nome": "Frango Grelhado", "cal_por_100g": 165}
     ]
 
 if 'historico_peso' not in st.session_state:
-    st.session_state.historico_peso = pd.DataFrame([{"data": "2023-10-01", "peso": 100.0}])
+    # Iniciando com um histórico para o gráfico aparecer
+    st.session_state.historico_peso = pd.DataFrame([{"data": datetime.now().date(), "peso": 100.0}])
 
 if 'carrinho' not in st.session_state:
     st.session_state.carrinho = []
@@ -34,32 +34,33 @@ if 'historico_consumo' not in st.session_state:
 if 'historico_exercicios' not in st.session_state:
     st.session_state.historico_exercicios = pd.DataFrame(columns=["data", "atividade", "calorias"])
 
-# --- LÓGICA DE CÁLCULOS (Mifflin-St Jeor) ---
-# Dados Fixos
+# --- LÓGICA DE CÁLCULOS ---
 IDADE = 30
 ALTURA = 186
-GENERO = "M"
 
 def calcular_metas(peso_atual):
-    # TMB = 10 * peso + 6.25 * altura - 5 * idade + 5
     tmb = (10 * peso_atual) + (6.25 * ALTURA) - (5 * IDADE) + 5
-    get = tmb * 1.2  # Sedentário base, exercícios somam depois
+    get = tmb * 1.2
     meta_calorica = get - 500
     meta_agua = (peso_atual * 35) / 1000
     return round(tmb), round(get), round(meta_calorica), round(meta_agua, 1)
 
-# --- SIDEBAR (PERFIL E PESO) ---
+# --- SIDEBAR (PERFIL E PESO DIÁRIO) ---
 with st.sidebar:
     st.header("👤 Perfil BioStats")
-    peso_input = st.number_input("Peso Atual (kg):", value=float(st.session_state.historico_peso.iloc[-1]['peso']), step=0.1)
     
-    if st.button("Atualizar Peso"):
-        novo_registro = pd.DataFrame([{"data": datetime.now().strftime("%d/%m/%Y"), "peso": peso_input}])
+    # Adição de peso diário com data específica
+    st.subheader("Registrar Peso")
+    data_peso = st.date_input("Data do Registro", datetime.now())
+    peso_input = st.number_input("Peso (kg):", value=float(st.session_state.historico_peso.iloc[-1]['peso']), step=0.1)
+    
+    if st.button("Salvar Peso"):
+        novo_registro = pd.DataFrame([{"data": data_peso, "peso": peso_input}])
         st.session_state.historico_peso = pd.concat([st.session_state.historico_peso, novo_registro], ignore_index=True)
-        st.success("Peso atualizado!")
+        st.session_state.historico_peso = st.session_state.historico_peso.drop_duplicates('data', keep='last').sort_values('data')
+        st.success("Peso registrado!")
 
     tmb, get, meta_cal, meta_agua = calcular_metas(peso_input)
-    
     st.divider()
     st.metric("Meta Diária", f"{meta_cal} kcal")
     st.metric("Meta Água", f"{meta_agua} L")
@@ -67,9 +68,9 @@ with st.sidebar:
 # --- ABAS PRINCIPAIS ---
 tab_diario, tab_exercicio, tab_evolucao, tab_banco = st.tabs(["🍽️ Diário", "💪 Treino", "📈 Evolução", "📂 Banco"])
 
-# --- ABA 1: DIÁRIO (SISTEMA DE CARRINHO) ---
+# --- ABA 1: DIÁRIO (CATEGORIAS AMPLIADAS) ---
 with tab_diario:
-    st.subheader("Montar Refeição")
+    st.subheader("Montar Prato")
     
     col1, col2 = st.columns([2, 1])
     with col1:
@@ -82,114 +83,89 @@ with tab_diario:
     with col2:
         st.write("Cals")
         st.info(f"{cal_calculada:.0f}")
-        if st.button("➕ Adicionar"):
-            st.session_state.carrinho.append({
-                "alimento": alimento_sel,
-                "calorias": cal_calculada
-            })
+        if st.button("➕"):
+            st.session_state.carrinho.append({"alimento": alimento_sel, "calorias": cal_calculada})
 
     if st.session_state.carrinho:
         st.write("---")
-        st.write("**Prato Atual:**")
         for i, item in enumerate(st.session_state.carrinho):
             c1, c2 = st.columns([3, 1])
-            c1.write(f"{item['alimento']} - {item['calorias']:.0f} kcal")
-            if c2.button("🗑️", key=f"del_{i}"):
+            c1.write(f"{item['alimento']} ({item['calorias']:.0f} kcal)")
+            if c2.button("🗑️", key=f"cart_{i}"):
                 st.session_state.carrinho.pop(i)
                 st.rerun()
         
-        cat = st.selectbox("Categoria", ["Café da Manhã", "Almoço", "Lanche", "Jantar", "Ceia"])
+        # Categorias solicitadas
+        cat = st.selectbox("Onde registrar?", ["Café da Manhã", "Almoço", "Café da Tarde", "Janta", "Snacks"])
         if st.button("✅ Registrar Refeição"):
-            novos_itens = []
-            for item in st.session_state.carrico: # Erro de digitação proposital para correção rápida
-                pass # Lógica de inserção abaixo
-            
             df_temp = pd.DataFrame(st.session_state.carrinho)
             df_temp['data'] = datetime.now().strftime("%Y-%m-%d")
             df_temp['categoria'] = cat
             st.session_state.historico_consumo = pd.concat([st.session_state.historico_consumo, df_temp], ignore_index=True)
             st.session_state.carrinho = []
-            st.success("Refeição registrada!")
+            st.success("Registrado com sucesso!")
             st.rerun()
 
     st.divider()
-    st.subheader("Histórico de Hoje")
+    st.subheader("Resumo do Dia")
     hoje = datetime.now().strftime("%Y-%m-%d")
     hist_hoje = st.session_state.historico_consumo[st.session_state.historico_consumo['data'] == hoje]
     
-    for categoria in hist_hoje['categoria'].unique():
-        with st.expander(f"📍 {categoria}"):
-            items_cat = hist_hoje[hist_hoje['categoria'] == categoria]
-            for idx, row in items_cat.iterrows():
-                c1, c2 = st.columns([4, 1])
-                c1.write(f"{row['alimento']} ({row['calorias']:.0f} kcal)")
-                if c2.button("❌", key=f"hist_del_{idx}"):
-                    st.session_state.historico_consumo.drop(idx, inplace=True)
-                    st.rerun()
+    for categoria in ["Café da Manhã", "Almoço", "Café da Tarde", "Janta", "Snacks"]:
+        items_cat = hist_hoje[hist_hoje['categoria'] == categoria]
+        if not items_cat.empty:
+            with st.expander(f"📍 {categoria} - {items_cat['calorias'].sum():.0f} kcal"):
+                for idx, row in items_cat.iterrows():
+                    c1, c2 = st.columns([4, 1])
+                    c1.write(f"{row['alimento']} ({row['calorias']:.0f} kcal)")
+                    if c2.button("❌", key=f"del_h_{idx}"):
+                        st.session_state.historico_consumo.drop(idx, inplace=True)
+                        st.rerun()
 
 # --- ABA 2: EXERCÍCIOS ---
 with tab_exercicio:
-    st.subheader("Registrar Gasto")
-    met_map = {"Musculação": 5.0, "Corrida (9km/h)": 8.8, "Caminhada": 3.5}
-    tipo_ex = st.radio("Atividade", ["Musculação", "Corrida (9km/h)", "Caminhada", "Manual"])
+    st.subheader("Atividade Física")
+    tipo_ex = st.radio("Tipo", ["Musculação", "Corrida (9km/h)", "Caminhada", "Manual"], horizontal=True)
     
     if tipo_ex != "Manual":
-        tempo = st.number_input("Tempo (minutos)", min_value=1, value=60)
-        # Gasto = MET * Peso * (Tempo/60)
+        tempo = st.number_input("Tempo (min)", min_value=1, value=45)
+        met_map = {"Musculação": 5.0, "Corrida (9km/h)": 8.8, "Caminhada": 3.5}
         gasto = round(met_map[tipo_ex] * peso_input * (tempo/60))
-        st.info(f"Gasto Estimado: {gasto} kcal")
+        st.info(f"Gasto: {gasto} kcal")
     else:
-        gasto = st.number_input("Calorias Manuais", min_value=1)
-        tipo_ex = st.text_input("Descrição da Atividade", "Exercício")
+        gasto = st.number_input("Calorias", min_value=1)
+        tipo_ex = st.text_input("Nome da Atividade")
 
-    if st.button("🔥 Registrar Exercício"):
+    if st.button("🔥 Salvar Exercício"):
         novo_ex = pd.DataFrame([{"data": hoje, "atividade": tipo_ex, "calorias": gasto}])
         st.session_state.historico_exercicios = pd.concat([st.session_state.historico_exercicios, novo_ex], ignore_index=True)
-        st.success("Queimado!")
+        st.success("Gasto registrado!")
 
-# --- ABA 3: EVOLUÇÃO E RELATÓRIOS ---
+# --- ABA 3: EVOLUÇÃO ---
 with tab_evolucao:
-    st.subheader("Análise de Dados")
+    st.subheader("Gráfico de Peso")
+    if not st.session_state.historico_peso.empty:
+        df_plot = st.session_state.historico_peso.copy()
+        df_plot['data'] = pd.to_datetime(df_plot['data'])
+        st.line_chart(df_plot.set_index('data')['peso'])
     
-    # Gráfico de Peso
-    st.line_chart(st.session_state.historico_peso.set_index("data")["peso"])
+    st.divider()
+    st.subheader("Balanço Energético")
+    c_dia = hist_hoje['calorias'].sum()
+    e_dia = st.session_state.historico_exercicios[st.session_state.historico_exercicios['data'] == hoje]['calorias'].sum()
     
-    # Balanço do Dia
-    consumo_dia = hist_hoje['calorias'].sum()
-    queima_dia = st.session_state.historico_exercicios[st.session_state.historico_exercicios['data'] == hoje]['calorias'].sum()
-    
-    col_r1, col_r2 = st.columns(2)
-    col_r1.metric("Ingerido", f"{consumo_dia:.0f} kcal")
-    col_r2.metric("Exercício", f"{queima_dia:.0f} kcal")
-    
-    st.write("**Balanço Energético (Hoje)**")
-    df_balanco = pd.DataFrame({
-        "Tipo": ["Ingerido", "Meta", "Gasto (Treino)"],
-        "Kcal": [consumo_dia, meta_cal, queima_dia]
-    })
-    st.bar_chart(df_balanco.set_index("Tipo"))
+    st.bar_chart(pd.DataFrame({
+        "Kcal": [c_dia, meta_cal, e_dia],
+        "Tipo": ["Consumido", "Meta", "Gasto Extra"]
+    }).set_index("Tipo"))
 
-# --- ABA 4: BANCO DE ALIMENTOS ---
+# --- ABA 4: BANCO ---
 with tab_banco:
-    st.subheader("Cadastrar Alimento")
-    nome_novo = st.text_input("Nome do Alimento")
-    cals_novo = st.number_input("Calorias por 100g (ou unidade)", min_value=0)
-    
-    if st.button("💾 Salvar no Banco"):
-        if nome_novo:
-            st.session_state.db_alimentos.append({"nome": nome_novo, "cal_por_100g": cals_novo})
-            st.success(f"{nome_novo} adicionado!")
-        else:
-            st.error("Digite o nome do alimento.")
-    
-    st.write("**Meus Alimentos:**")
+    st.subheader("Novo Alimento")
+    n = st.text_input("Nome")
+    c = st.number_input("Cals / 100g")
+    if st.button("Cadastrar"):
+        st.session_state.db_alimentos.append({"nome": n, "cal_por_100g": c})
+        st.rerun()
     st.dataframe(pd.DataFrame(st.session_state.db_alimentos), use_container_width=True)
-
-
-
-
-
-
-
-
-
+        
