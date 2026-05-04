@@ -1,170 +1,511 @@
+# app.py
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+import numpy as np
+from datetime import datetime, date
+import plotly.express as px
 
-# --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="BioStats Pro v2", layout="centered")
+# =========================================================
+# CONFIGURAÇÃO INICIAL
+# =========================================================
 
-# --- ESTILO CSS PARA MOBILE ---
-st.markdown("""
-    <style>
-    .main { max-width: 500px; margin: 0 auto; }
-    .stButton button { width: 100%; }
-    </style>
-    """, unsafe_allow_html=True)
+st.set_page_config(
+    page_title="Health Tracker",
+    page_icon="🏋️",
+    layout="centered"
+)
 
-# --- INICIALIZAÇÃO DO ESTADO (SESSION STATE) ---
-if 'db_alimentos' not in st.session_state:
-    st.session_state.db_alimentos = [
-        {"nome": "Arroz Branco", "cal_por_100g": 130},
-        {"nome": "Feijão Preto", "cal_por_100g": 91},
-        {"nome": "Frango Grelhado", "cal_por_100g": 165}
-    ]
+# =========================================================
+# DADOS FIXOS DO USUÁRIO
+# =========================================================
 
-if 'historico_peso' not in st.session_state:
-    # Iniciando com um histórico para o gráfico aparecer
-    st.session_state.historico_peso = pd.DataFrame([{"data": datetime.now().date(), "peso": 100.0}])
-
-if 'carrinho' not in st.session_state:
-    st.session_state.carrinho = []
-
-if 'historico_consumo' not in st.session_state:
-    st.session_state.historico_consumo = pd.DataFrame(columns=["data", "categoria", "alimento", "calorias"])
-
-if 'historico_exercicios' not in st.session_state:
-    st.session_state.historico_exercicios = pd.DataFrame(columns=["data", "atividade", "calorias"])
-
-# --- LÓGICA DE CÁLCULOS ---
 IDADE = 30
-ALTURA = 186
+ALTURA = 186  # cm
+SEXO = "Homem"
 
-def calcular_metas(peso_atual):
-    tmb = (10 * peso_atual) + (6.25 * ALTURA) - (5 * IDADE) + 5
-    get = tmb * 1.2
-    meta_calorica = get - 500
-    meta_agua = (peso_atual * 35) / 1000
-    return round(tmb), round(get), round(meta_calorica), round(meta_agua, 1)
+# =========================================================
+# FUNÇÕES
+# =========================================================
 
-# --- SIDEBAR (PERFIL E PESO DIÁRIO) ---
-with st.sidebar:
-    st.header("👤 Perfil BioStats")
-    
-    # Adição de peso diário com data específica
-    st.subheader("Registrar Peso")
-    data_peso = st.date_input("Data do Registro", datetime.now())
-    peso_input = st.number_input("Peso (kg):", value=float(st.session_state.historico_peso.iloc[-1]['peso']), step=0.1)
-    
-    if st.button("Salvar Peso"):
-        novo_registro = pd.DataFrame([{"data": data_peso, "peso": peso_input}])
-        st.session_state.historico_peso = pd.concat([st.session_state.historico_peso, novo_registro], ignore_index=True)
-        st.session_state.historico_peso = st.session_state.historico_peso.drop_duplicates('data', keep='last').sort_values('data')
-        st.success("Peso registrado!")
+def calcular_tmb(peso):
+    """
+    Fórmula de Mifflin-St Jeor
+    Homem:
+    TMB = (10 × peso) + (6.25 × altura) − (5 × idade) + 5
+    """
+    return (10 * peso) + (6.25 * ALTURA) - (5 * IDADE) + 5
 
-    tmb, get, meta_cal, meta_agua = calcular_metas(peso_input)
-    st.divider()
-    st.metric("Meta Diária", f"{meta_cal} kcal")
-    st.metric("Meta Água", f"{meta_agua} L")
 
-# --- ABAS PRINCIPAIS ---
-tab_diario, tab_exercicio, tab_evolucao, tab_banco = st.tabs(["🍽️ Diário", "💪 Treino", "📈 Evolução", "📂 Banco"])
+def calcular_get(tmb, fator_atividade=1.55):
+    """
+    GET = TMB x fator atividade
+    """
+    return tmb * fator_atividade
 
-# --- ABA 1: DIÁRIO (CATEGORIAS AMPLIADAS) ---
-with tab_diario:
-    st.subheader("Montar Prato")
-    
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        alimento_sel = st.selectbox("Alimento", options=[a['nome'] for a in st.session_state.db_alimentos])
-        qtd = st.number_input("Quantidade (g/un)", min_value=1, value=100)
-    
-    dados_alimento = next(item for item in st.session_state.db_alimentos if item["nome"] == alimento_sel)
-    cal_calculada = (dados_alimento['cal_por_100g'] / 100) * qtd
-    
-    with col2:
-        st.write("Cals")
-        st.info(f"{cal_calculada:.0f}")
-        if st.button("➕"):
-            st.session_state.carrinho.append({"alimento": alimento_sel, "calorias": cal_calculada})
 
-    if st.session_state.carrinho:
-        st.write("---")
+def meta_emagrecimento(get):
+    return get - 500
+
+
+def meta_agua(peso):
+    return peso * 35  # ml
+
+
+def inicializar_session():
+    if "peso_atual" not in st.session_state:
+        st.session_state.peso_atual = 107.0
+
+    if "historico_peso" not in st.session_state:
+        st.session_state.historico_peso = pd.DataFrame(
+            [{
+                "Data": datetime.now(),
+                "Peso": st.session_state.peso_atual
+            }]
+        )
+
+    if "alimentos" not in st.session_state:
+        st.session_state.alimentos = pd.DataFrame([
+            {"Alimento": "Arroz", "Tipo": "g", "Kcal_base": 130, "Kcal_g": 1.30},
+            {"Alimento": "Feijão", "Tipo": "g", "Kcal_base": 76, "Kcal_g": 0.76},
+            {"Alimento": "Frango", "Tipo": "g", "Kcal_base": 165, "Kcal_g": 1.65},
+            {"Alimento": "Ovo", "Tipo": "un", "Kcal_base": 70, "Kcal_g": 70},
+            {"Alimento": "Banana", "Tipo": "un", "Kcal_base": 90, "Kcal_g": 90},
+        ])
+
+    if "carrinho" not in st.session_state:
+        st.session_state.carrinho = []
+
+    if "historico_refeicoes" not in st.session_state:
+        st.session_state.historico_refeicoes = pd.DataFrame(
+            columns=[
+                "Data",
+                "Refeicao",
+                "Alimento",
+                "Quantidade",
+                "Calorias"
+            ]
+        )
+
+    if "historico_exercicios" not in st.session_state:
+        st.session_state.historico_exercicios = pd.DataFrame(
+            columns=[
+                "Data",
+                "Atividade",
+                "Duracao",
+                "Calorias"
+            ]
+        )
+
+
+inicializar_session()
+
+# =========================================================
+# CÁLCULOS
+# =========================================================
+
+peso_atual = st.session_state.peso_atual
+
+TMB = calcular_tmb(peso_atual)
+GET = calcular_get(TMB)
+META_KCAL = meta_emagrecimento(GET)
+META_AGUA = meta_agua(peso_atual)
+
+# =========================================================
+# SIDEBAR
+# =========================================================
+
+st.sidebar.title("⚙️ Perfil")
+
+novo_peso = st.sidebar.number_input(
+    "Peso Atual (kg)",
+    min_value=30.0,
+    max_value=300.0,
+    value=float(st.session_state.peso_atual),
+    step=0.1
+)
+
+if novo_peso != st.session_state.peso_atual:
+    st.session_state.peso_atual = novo_peso
+
+    novo_registro = pd.DataFrame([{
+        "Data": datetime.now(),
+        "Peso": novo_peso
+    }])
+
+    st.session_state.historico_peso = pd.concat(
+        [st.session_state.historico_peso, novo_registro],
+        ignore_index=True
+    )
+
+st.sidebar.markdown("---")
+
+st.sidebar.metric("TMB", f"{TMB:.0f} kcal")
+st.sidebar.metric("GET", f"{GET:.0f} kcal")
+st.sidebar.metric("Meta Emagrecimento", f"{META_KCAL:.0f} kcal")
+st.sidebar.metric("Meta Água", f"{META_AGUA:.0f} ml")
+
+# =========================================================
+# TABS
+# =========================================================
+
+tabs = st.tabs([
+    "🍽️ Alimentação",
+    "🏋️ Exercícios",
+    "📈 Evolução",
+    "📚 Banco",
+    "📊 Relatórios"
+])
+
+# =========================================================
+# ABA ALIMENTAÇÃO
+# =========================================================
+
+with tabs[0]:
+
+    st.title("🍽️ Alimentação")
+
+    alimentos_df = st.session_state.alimentos
+
+    alimento_escolhido = st.selectbox(
+        "Escolha o alimento",
+        alimentos_df["Alimento"].tolist()
+    )
+
+    alimento_info = alimentos_df[
+        alimentos_df["Alimento"] == alimento_escolhido
+    ].iloc[0]
+
+    tipo = alimento_info["Tipo"]
+
+    if tipo == "g":
+        quantidade = st.number_input(
+            "Quantidade (g)",
+            min_value=1.0,
+            value=100.0
+        )
+
+        calorias = quantidade * alimento_info["Kcal_g"]
+
+    else:
+        quantidade = st.number_input(
+            "Quantidade (un)",
+            min_value=1.0,
+            value=1.0
+        )
+
+        calorias = quantidade * alimento_info["Kcal_g"]
+
+    st.metric("Calorias", f"{calorias:.0f} kcal")
+
+    if st.button("➕ Adicionar ao prato"):
+        st.session_state.carrinho.append({
+            "Alimento": alimento_escolhido,
+            "Quantidade": quantidade,
+            "Calorias": calorias
+        })
+
+    st.markdown("## 🛒 Meu Prato")
+
+    total_prato = 0
+
+    if len(st.session_state.carrinho) > 0:
+
         for i, item in enumerate(st.session_state.carrinho):
-            c1, c2 = st.columns([3, 1])
-            c1.write(f"{item['alimento']} ({item['calorias']:.0f} kcal)")
-            if c2.button("🗑️", key=f"cart_{i}"):
+
+            col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+
+            col1.write(item["Alimento"])
+            col2.write(f'{item["Quantidade"]}')
+            col3.write(f'{item["Calorias"]:.0f} kcal')
+
+            if col4.button("🗑️", key=f"del_cart_{i}"):
                 st.session_state.carrinho.pop(i)
                 st.rerun()
-        
-        # Categorias solicitadas
-        cat = st.selectbox("Onde registrar?", ["Café da Manhã", "Almoço", "Café da Tarde", "Janta", "Snacks"])
+
+            total_prato += item["Calorias"]
+
+        st.metric("Total do Prato", f"{total_prato:.0f} kcal")
+
+        refeicao = st.selectbox(
+            "Categoria da Refeição",
+            ["Café da Manhã", "Almoço", "Lanche", "Janta", "Ceia"]
+        )
+
         if st.button("✅ Registrar Refeição"):
-            df_temp = pd.DataFrame(st.session_state.carrinho)
-            df_temp['data'] = datetime.now().strftime("%Y-%m-%d")
-            df_temp['categoria'] = cat
-            st.session_state.historico_consumo = pd.concat([st.session_state.historico_consumo, df_temp], ignore_index=True)
+
+            novos_itens = []
+
+            for item in st.session_state.carrinho:
+                novos_itens.append({
+                    "Data": datetime.now(),
+                    "Refeicao": refeicao,
+                    "Alimento": item["Alimento"],
+                    "Quantidade": item["Quantidade"],
+                    "Calorias": item["Calorias"]
+                })
+
+            novo_df = pd.DataFrame(novos_itens)
+
+            st.session_state.historico_refeicoes = pd.concat(
+                [st.session_state.historico_refeicoes, novo_df],
+                ignore_index=True
+            )
+
             st.session_state.carrinho = []
-            st.success("Registrado com sucesso!")
+
+            st.success("Refeição registrada!")
             st.rerun()
 
-    st.divider()
-    st.subheader("Resumo do Dia")
-    hoje = datetime.now().strftime("%Y-%m-%d")
-    hist_hoje = st.session_state.historico_consumo[st.session_state.historico_consumo['data'] == hoje]
-    
-    for categoria in ["Café da Manhã", "Almoço", "Café da Tarde", "Janta", "Snacks"]:
-        items_cat = hist_hoje[hist_hoje['categoria'] == categoria]
-        if not items_cat.empty:
-            with st.expander(f"📍 {categoria} - {items_cat['calorias'].sum():.0f} kcal"):
-                for idx, row in items_cat.iterrows():
-                    c1, c2 = st.columns([4, 1])
-                    c1.write(f"{row['alimento']} ({row['calorias']:.0f} kcal)")
-                    if c2.button("❌", key=f"del_h_{idx}"):
-                        st.session_state.historico_consumo.drop(idx, inplace=True)
+    st.markdown("---")
+    st.markdown("## 📋 Histórico")
+
+    historico = st.session_state.historico_refeicoes
+
+    if not historico.empty:
+
+        categorias = historico["Refeicao"].unique()
+
+        for cat in categorias:
+
+            with st.expander(cat, expanded=True):
+
+                df_cat = historico[historico["Refeicao"] == cat]
+
+                for idx, row in df_cat.iterrows():
+
+                    c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+
+                    c1.write(row["Alimento"])
+                    c2.write(row["Quantidade"])
+                    c3.write(f'{row["Calorias"]:.0f} kcal')
+
+                    if c4.button("🗑️", key=f"hist_{idx}"):
+
+                        st.session_state.historico_refeicoes = (
+                            st.session_state.historico_refeicoes.drop(idx)
+                        )
+
                         st.rerun()
 
-# --- ABA 2: EXERCÍCIOS ---
-with tab_exercicio:
-    st.subheader("Atividade Física")
-    tipo_ex = st.radio("Tipo", ["Musculação", "Corrida (9km/h)", "Caminhada", "Manual"], horizontal=True)
-    
-    if tipo_ex != "Manual":
-        tempo = st.number_input("Tempo (min)", min_value=1, value=45)
-        met_map = {"Musculação": 5.0, "Corrida (9km/h)": 8.8, "Caminhada": 3.5}
-        gasto = round(met_map[tipo_ex] * peso_input * (tempo/60))
-        st.info(f"Gasto: {gasto} kcal")
+# =========================================================
+# ABA EXERCÍCIOS
+# =========================================================
+
+with tabs[1]:
+
+    st.title("🏋️ Exercícios")
+
+    METS = {
+        "Musculação": 6,
+        "Corrida": 9.8,
+        "Caminhada": 3.8
+    }
+
+    atividade = st.selectbox(
+        "Atividade",
+        list(METS.keys()) + ["Gasto Manual"]
+    )
+
+    if atividade != "Gasto Manual":
+
+        duracao = st.number_input(
+            "Duração (min)",
+            min_value=1,
+            value=60
+        )
+
+        met = METS[atividade]
+
+        calorias = (
+            met * 3.5 * st.session_state.peso_atual / 200
+        ) * duracao
+
+        st.metric("Gasto Calórico", f"{calorias:.0f} kcal")
+
+        if st.button("Registrar Exercício"):
+
+            novo = pd.DataFrame([{
+                "Data": datetime.now(),
+                "Atividade": atividade,
+                "Duracao": duracao,
+                "Calorias": calorias
+            }])
+
+            st.session_state.historico_exercicios = pd.concat(
+                [st.session_state.historico_exercicios, novo],
+                ignore_index=True
+            )
+
+            st.success("Exercício registrado!")
+
     else:
-        gasto = st.number_input("Calorias", min_value=1)
-        tipo_ex = st.text_input("Nome da Atividade")
 
-    if st.button("🔥 Salvar Exercício"):
-        novo_ex = pd.DataFrame([{"data": hoje, "atividade": tipo_ex, "calorias": gasto}])
-        st.session_state.historico_exercicios = pd.concat([st.session_state.historico_exercicios, novo_ex], ignore_index=True)
-        st.success("Gasto registrado!")
+        descricao = st.text_input("Descrição")
 
-# --- ABA 3: EVOLUÇÃO ---
-with tab_evolucao:
-    st.subheader("Gráfico de Peso")
-    if not st.session_state.historico_peso.empty:
-        df_plot = st.session_state.historico_peso.copy()
-        df_plot['data'] = pd.to_datetime(df_plot['data'])
-        st.line_chart(df_plot.set_index('data')['peso'])
-    
-    st.divider()
-    st.subheader("Balanço Energético")
-    c_dia = hist_hoje['calorias'].sum()
-    e_dia = st.session_state.historico_exercicios[st.session_state.historico_exercicios['data'] == hoje]['calorias'].sum()
-    
-    st.bar_chart(pd.DataFrame({
-        "Kcal": [c_dia, meta_cal, e_dia],
-        "Tipo": ["Consumido", "Meta", "Gasto Extra"]
-    }).set_index("Tipo"))
+        kcal_manual = st.number_input(
+            "Calorias Gastas",
+            min_value=0.0,
+            value=100.0
+        )
 
-# --- ABA 4: BANCO ---
-with tab_banco:
-    st.subheader("Novo Alimento")
-    n = st.text_input("Nome")
-    c = st.number_input("Cals / 100g")
-    if st.button("Cadastrar"):
-        st.session_state.db_alimentos.append({"nome": n, "cal_por_100g": c})
-        st.rerun()
-    st.dataframe(pd.DataFrame(st.session_state.db_alimentos), use_container_width=True)
+        if st.button("Registrar Gasto Manual"):
+
+            novo = pd.DataFrame([{
+                "Data": datetime.now(),
+                "Atividade": descricao,
+                "Duracao": 0,
+                "Calorias": kcal_manual
+            }])
+
+            st.session_state.historico_exercicios = pd.concat(
+                [st.session_state.historico_exercicios, novo],
+                ignore_index=True
+            )
+
+            st.success("Gasto registrado!")
+
+    st.markdown("---")
+
+    st.subheader("Histórico de Exercícios")
+
+    if not st.session_state.historico_exercicios.empty:
+        st.dataframe(
+            st.session_state.historico_exercicios,
+            use_container_width=True
+        )
+
+# =========================================================
+# ABA EVOLUÇÃO
+# =========================================================
+
+with tabs[2]:
+
+    st.title("📈 Evolução do Peso")
+
+    hist_peso = st.session_state.historico_peso.copy()
+
+    fig = px.line(
+        hist_peso,
+        x="Data",
+        y="Peso",
+        markers=True,
+        title="Evolução do Peso"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.dataframe(hist_peso, use_container_width=True)
+
+# =========================================================
+# ABA BANCO DE ALIMENTOS
+# =========================================================
+
+with tabs[3]:
+
+    st.title("📚 Banco de Alimentos")
+
+    with st.form("novo_alimento"):
+
+        nome = st.text_input("Nome do alimento")
+
+        tipo = st.selectbox(
+            "Tipo",
+            ["g", "un"]
+        )
+
+        kcal = st.number_input(
+            "Calorias por 100g ou unidade",
+            min_value=0.0
+        )
+
+        submit = st.form_submit_button("Salvar")
+
+        if submit:
+
+            if tipo == "g":
+                kcal_g = kcal / 100
+            else:
+                kcal_g = kcal
+
+            novo = pd.DataFrame([{
+                "Alimento": nome,
+                "Tipo": tipo,
+                "Kcal_base": kcal,
+                "Kcal_g": kcal_g
+            }])
+
+            st.session_state.alimentos = pd.concat(
+                [st.session_state.alimentos, novo],
+                ignore_index=True
+            )
+
+            st.success("Alimento cadastrado!")
+
+    st.markdown("---")
+
+    st.dataframe(
+        st.session_state.alimentos,
+        use_container_width=True
+    )
+
+# =========================================================
+# ABA RELATÓRIOS
+# =========================================================
+
+with tabs[4]:
+
+    st.title("📊 Relatórios")
+
+    total_ingerido = (
+        st.session_state.historico_refeicoes["Calorias"].sum()
+        if not st.session_state.historico_refeicoes.empty
+        else 0
+    )
+
+    total_exercicios = (
+        st.session_state.historico_exercicios["Calorias"].sum()
+        if not st.session_state.historico_exercicios.empty
+        else 0
+    )
+
+    total_queimado = GET + total_exercicios
+
+    col1, col2 = st.columns(2)
+
+    col1.metric(
+        "🔥 Total Queimado",
+        f"{total_queimado:.0f} kcal"
+    )
+
+    col2.metric(
+        "🍔 Total Ingerido",
+        f"{total_ingerido:.0f} kcal"
+    )
+
+    saldo = total_ingerido - total_queimado
+
+    st.metric(
+        "⚖️ Saldo Calórico",
+        f"{saldo:.0f} kcal"
+    )
+
+    grafico_df = pd.DataFrame({
+        "Categoria": ["Ingerido", "Queimado"],
+        "Calorias": [total_ingerido, total_queimado]
+    })
+
+    fig = px.bar(
+        grafico_df,
+        x="Categoria",
+        y="Calorias",
+        title="Comparativo Calórico"
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+# =========================================================
+# RODAPÉ
+# =========================================================
+
+st.markdown("---")
+st.caption("Sistema de Gestão de Saúde e Emagrecimento")
