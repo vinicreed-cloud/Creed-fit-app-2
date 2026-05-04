@@ -22,7 +22,7 @@ def init_state():
 
     if "historico_peso" not in st.session_state:
         st.session_state.historico_peso = pd.DataFrame(
-            [{"data": dt.date.today(), "peso": PESO_INICIAL}]
+            [{"data": pd.to_datetime(dt.date.today()), "peso": PESO_INICIAL}]
         )
 
     if "banco_alimentos" not in st.session_state:
@@ -64,7 +64,7 @@ def metas(peso, tmb, get):
 
 
 def registrar_peso_diario(peso):
-    hoje = dt.date.today()
+    hoje = pd.to_datetime(dt.date.today())
     df = st.session_state.historico_peso
 
     if hoje not in df["data"].values:
@@ -73,8 +73,12 @@ def registrar_peso_diario(peso):
 
 
 def registrar_peso_manual(peso):
-    hoje = dt.date.today()
+    hoje = pd.to_datetime(dt.date.today())
     df = st.session_state.historico_peso
+
+    # remove registro duplicado do dia
+    df = df[df["data"] != hoje]
+
     novo = pd.DataFrame([{"data": hoje, "peso": peso}])
     st.session_state.historico_peso = pd.concat([df, novo], ignore_index=True)
     st.session_state.peso_atual = peso
@@ -84,7 +88,7 @@ def registrar_refeicao(categoria):
     if not st.session_state.carrinho:
         return
 
-    hoje = dt.date.today()
+    hoje = pd.to_datetime(dt.date.today())
     hora = dt.datetime.now().strftime("%H:%M")
 
     novos = []
@@ -108,7 +112,7 @@ def registrar_refeicao(categoria):
 
 
 def registrar_exercicio(desc, kcal):
-    hoje = dt.date.today()
+    hoje = pd.to_datetime(dt.date.today())
     hora = dt.datetime.now().strftime("%H:%M")
     df = st.session_state.historico_exercicios
     novo = pd.DataFrame([{"data": hoje, "hora": hora, "descricao": desc, "kcal": kcal}])
@@ -197,6 +201,10 @@ with tab_alim:
     if busca:
         df_banco = df_banco[df_banco["nome"].str.contains(busca, case=False)]
 
+    if df_banco.empty:
+        st.warning("Nenhum alimento encontrado.")
+        st.stop()
+
     alimento = st.selectbox("Alimento", df_banco["nome"].tolist())
 
     unidade = st.radio("Unidade", ["g", "unidade"], horizontal=True)
@@ -215,6 +223,8 @@ with tab_alim:
 
     st.subheader("Carrinho")
     total = 0
+    remove_index = None
+
     for i, item in enumerate(st.session_state.carrinho):
         cols = st.columns([4, 2, 2, 1])
         cols[0].write(item["alimento"])
@@ -222,8 +232,11 @@ with tab_alim:
         cols[2].write(f"{item['kcal']:.0f} kcal")
         total += item["kcal"]
         if cols[3].button("🗑️", key=f"del_{i}"):
-            st.session_state.carrinho.pop(i)
-            st.experimental_rerun()
+            remove_index = i
+
+    if remove_index is not None:
+        st.session_state.carrinho.pop(remove_index)
+        st.experimental_rerun()
 
     st.write(f"**Total do prato:** {total:.0f} kcal")
 
@@ -300,38 +313,46 @@ with tab_banco:
 with tab_rel:
     st.header("Relatórios")
 
-    df_ref = st.session_state.historico_refeicoes
-    df_ex = st.session_state.historico_exercicios
+    df_ref = st.session_state.historico_refeicoes.copy()
+    df_ex = st.session_state.historico_exercicios.copy()
+
+    # Converter datas
+    df_ref["data"] = pd.to_datetime(df_ref["data"])
+    df_ex["data"] = pd.to_datetime(df_ex["data"])
 
     dias = sorted(df_ref["data"].unique())
 
-    dia_sel = st.selectbox("Selecionar dia", dias)
+    if dias:
+        dia_sel = st.selectbox("Selecionar dia", dias)
 
-    df_dia_ref = df_ref[df_ref["data"] == dia_sel]
-    df_dia_ex = df_ex[df_ex["data"] == dia_sel]
+        df_dia_ref = df_ref[df_ref["data"] == dia_sel]
+        df_dia_ex = df_ex[df_ex["data"] == dia_sel]
 
-    ingerido = df_dia_ref["kcal"].sum()
-    queimado = df_dia_ex["kcal"].sum()
+        ingerido = df_dia_ref["kcal"].sum()
+        queimado = df_dia_ex["kcal"].sum()
 
-    st.metric("Ingerido", f"{ingerido:.0f} kcal")
-    st.metric("Queimado", f"{queimado:.0f} kcal")
-    st.metric("Saldo", f"{ingerido - queimado:.0f} kcal")
+        st.metric("Ingerido", f"{ingerido:.0f} kcal")
+        st.metric("Queimado", f"{queimado:.0f} kcal")
+        st.metric("Saldo", f"{ingerido - queimado:.0f} kcal")
 
-    st.subheader("Comparativo")
-    df_bar = pd.DataFrame(
-        {"Tipo": ["Ingerido", "Queimado"], "kcal": [ingerido, queimado]}
-    ).set_index("Tipo")
+        st.subheader("Comparativo")
+        df_bar = pd.DataFrame(
+            {"Tipo": ["Ingerido", "Queimado"], "kcal": [ingerido, queimado]}
+        ).set_index("Tipo")
 
-    st.bar_chart(df_bar)
+        st.bar_chart(df_bar)
 
     st.subheader("Resumo semanal")
-    df_ref["semana"] = df_ref["data"].dt.isocalendar().week
-    df_ex["semana"] = df_ex["data"].dt.isocalendar().week
 
-    semana_sel = st.selectbox("Semana", sorted(df_ref["semana"].unique()))
+    if not df_ref.empty:
+        df_ref["semana"] = df_ref["data"].dt.isocalendar().week
+        df_ex["semana"] = df_ex["data"].dt.isocalendar().week
 
-    ing_sem = df_ref[df_ref["semana"] == semana_sel]["kcal"].sum()
-    que_sem = df_ex[df_ex["semana"] == semana_sel]["kcal"].sum()
+        semanas = sorted(df_ref["semana"].unique())
+        semana_sel = st.selectbox("Semana", semanas)
 
-    st.write(f"**Ingerido na semana:** {ing_sem:.0f} kcal")
-    st.write(f"**Queimado na semana:** {que_sem:.0f} kcal")
+        ing_sem = df_ref[df_ref["semana"] == semana_sel]["kcal"].sum()
+        que_sem = df_ex[df_ex["semana"] == semana_sel]["kcal"].sum()
+
+        st.write(f"**Ingerido na semana:** {ing_sem:.0f} kcal")
+        st.write(f"**Queimado na semana:** {que_sem:.0f} kcal")
